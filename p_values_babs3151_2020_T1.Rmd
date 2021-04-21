@@ -1,0 +1,652 @@
+---
+title: "P values"
+author: "Peter Geelan-Small, Stats Central"
+date: "28/02/2020"
+output:
+  slidy_presentation:
+    incremental: false
+    theme: cerulean
+    highlight: pygments
+---
+
+```{r setup, include = F}
+
+require(knitr)
+
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+
+```
+
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(BHH2)  ##  For dotPlot
+library(tidyr)
+library(reshape2)
+
+```
+
+
+##  P values
+
+<br>
+
+-  What are they?
+-  Where are they used?
+-  Where do they come from?
+-  What do they mean?
+-  How are they _misused_?
+
+
+##  Reporting research findings
+
+<br>
+
+Zaslavsky, K. et al. 2019. SHANK2 mutations associated with autism spectrum disorder cause hyperconnectivity of human neurons. _Nature Neuroscience_ 22:556-564.
+
+
+-  Figure 4a, p. 6 of 19
+-  Supplementary Table 10, p. 45 of 55
+-  People report their research results using:
+    -  graphs
+    -  numerical estimates (with estimates of uncertainty like standard errors)
+    -  P values
+-  Search for "significant"
+-  _You'll need to use P values (correctly!) in your report_
+
+
+##  What's the idea behind a P value?
+
+_Example_
+
+To investigate effects of alcohol on young adults, reaction times of nine volunteers to a prompt on a computer screen were measured. Times were precisely measured by computer software under the same conditions for all volunteers. All volunteers had zero blood alcohol readings. There were four females and five males. The data are shown below. (Source: MacGillivray, H et al. (2013), pp. 130-132)
+
+<br>
+
+
+```{r include = F}
+
+react <- data.frame(Gender = rep(c("Female", "Male"), c(4, 5)),
+                    Time = c(1.96, 1.84, 2.02, 2.26, 
+                             1.75, 1.78, 1.72, 2.00, 1.84))
+
+##  Mean of each group
+
+mean_gender <- with(react, tapply(Time, INDEX = Gender, mean))
+
+mean_gender
+
+```
+
+
+| Gender |      |      |      |      |      |    |  Mean  |
+|--------|------|------|------|------|------|----|--------|
+| Female | 1.96 | 1.84 | 2.02 | 2.26 |      |    | 2.020  |
+| Male   | 1.75 | 1.78 | 1.72 | 2.00 | 1.84 |    | 1.818  |  
+  
+<br>
+
+```{r fig.width = 7, fig.height = 2}
+
+ggplot(react, aes(x = Gender, y = Time)) +
+  geom_point() + 
+  labs(x = "Gender", y = "Time (s)", size = 16) + 
+  theme(axis.text= element_text(size = 14),
+        axis.title = element_text(size = 17)) +
+  coord_flip()
+
+```
+
+
+##  What's the idea behind a P value?
+
+<br>
+
+Question:  Is there a difference between female and male reaction time?
+
+<br>
+
+What can we use as a typical value of reaction time? The mean!
+
+<br>
+
+1.  We assume female and male reaction time is the same (Null hypothesis).
+2.  Shuffle the female and male labels on the data values to get all possible combinations.
+3.  Calculate the mean for the female and male groups in each combination.
+4.  Find the difference between the female and male means for each combination.
+5.  Look at the pattern of values of all these differences.
+6.  See how unusual the difference is that we got from our sample data.
+
+
+
+
+```{r}
+
+#####  Create the 126 combinations of the nine data values
+
+##  Make an ID for each data value in each group
+
+id0 <- expand.grid(c("m", "f"), 1:5)
+
+id <- paste0(id0$Var1, id0$Var2)
+
+id <- id[!id %in% "f5"]
+
+id <- factor(sort(id))
+
+#id
+
+##  Get all combinations of 9 data values taken 4 at a time
+##  The remaining 5 data values are then determined giving 
+##    the 126 unique combinations of the data values
+##    i.e. 9! / (5! 4!) = 126
+
+#combins1 <- combn(id, m = 4)
+
+combins1 <- combn(1:9, m = 4)
+
+
+
+#dim(combins1)
+
+##  Get the five data values that are "left over" from the full 
+##    set of nine values for each set of four.
+
+combins_all <- matrix(rep(NA, 126*9), nrow = 9)
+
+for(i in 1:126) {
+  combins_all[ , i] <- c(combins1[ , i], setdiff(1:9, combins1[, i]))
+}
+
+##  Attach id to data
+
+react <- data.frame(react, id = sort(id))
+
+##  For each shuffled order specified in columns of combins_all,
+##    calculate the mean of the first four values and of the
+##    remaining five values, find the difference and save it.
+
+react_shuffle <- matrix(rep(NA, 126*9), nrow = 9)
+
+react_shuffle_ls <- list()  ##  This used to check result of loop below
+
+for(i in 1:126) {
+  react_shuffle[ , i] <- react$Time[combins_all[ , i]]
+  ##  Line below used to check result
+  react_shuffle_ls[[i]] <- data.frame(
+    time = react$Time[combins_all[ , i]], 
+    id = id[combins_all[ , i]])
+}
+
+#dim(react_shuffle)
+
+#react_shuffle[ , 1:10]
+
+#do.call("cbind", react_shuffle_ls)
+
+##  Subtract the mean of the first four data values and of the last 
+##    five data values in each column of the shuffled data and store 
+##    the difference. These are the diffferences of the means of 
+##    the two groups.
+
+mean_first_4 <- apply(react_shuffle[1:4, ], 2, mean)
+
+mean_last_5 <- apply(react_shuffle[5:9, ], 2, mean)
+
+diff_means <- data.frame(diff = mean_first_4 - mean_last_5)
+
+```
+
+
+##  What's the idea behind a P value?
+
+<br>
+
+For example, two sets of shuffled labels give these new groupings:
+
+```{r include = F}
+
+react_shuffle_ls[[21]]$id
+##  [1] f1 f2 m4 m5 f3 f4 m1 m2 m3
+
+react_shuffle_ls[[101]]$id
+##  [1] f3 f4 m4 m5 f1 f2 m1 m2 m3
+react$Time
+
+```
+
+|  |      |      |      |      |      |    |   |  |  |  |
+|-----|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
+| Time     | 1.96 | 1.84 | 2.02 | 2.26 | 1.75 | 1.78 | 1.72 | 2.00 | 1.84 |
+| Original |   F  |  F   |  F   |  F   |  M   |  M   |   M  |   M  |  M   |
+| Shuffled |   F  |  F   |  M   |  M   |  M   |  M   |  M   |   F  |  F   |
+| Shuffled |   M  |  F   |  F   |  F   |  M   |  M   |  M   |   F  |  M   |
+
+
+##  What's the idea behind a P value?
+
+<br>
+
+
+Observed difference in means from sample (Male - Female) = 2.020 - 1.818 = 0.202
+
+
+```{r fig.width = 8, fig.height = 3}
+
+###  Make a dot plot of the differences
+
+diff_mean_gender <- mean_gender[1] - mean_gender[2]
+
+ggplot(diff_means, aes(x = diff)) +
+  geom_dotplot(method = "histodot", binwidth = 0.001, dotsize = 6) +
+  scale_y_continuous(NULL, breaks = NULL) +   
+  coord_fixed(ratio = 0.1) +
+  geom_vline(xintercept = diff_mean_gender, colour = "purple") +
+  geom_vline(xintercept = -diff_mean_gender, colour = "purple") +
+  labs(x = "Difference in means") +
+  ggtitle("Differences between gender means of randomised groups with observed
+          difference (purple lines)")
+  
+#par(cex.lab = 1.2)
+#dotPlot(diff_means$diff, xlab = "Difference in gender means")
+#abline(v = diff_mean_gender, col = "purple", lwd = 2)
+#abline(v = -diff_mean_gender, col = "purple", lwd = 2)
+#title("Differences between gender means of randomised groups \n with observed difference (purple lines)")
+
+```
+
+
+<br>
+
+-  How unusual is our sample?
+
+-  Is there some number that describes how unusual our sample difference is?
+
+
+##  What's the idea behind a P value?
+
+<br>
+
+_Is the average reaction time of females and males different?_
+
+<br>
+
+-  How many of the differences are greater than or equal to 0.202?
+
+```{r include = F}
+
+sum(diff_means$diff >= diff_mean_gender)
+
+```
+
+There are 5 differences greater than or equal to what we got in our sample.
+
+<br>
+
+-  Allowing for the other end of the scale, how many differences are less than or equal to -0.202 (i.e. same size but other direction)?
+
+
+```{r include = F}
+
+sum(diff_means$diff <= -0.202)
+
+```
+    
+There are 4 differences greater than or equal in size but _negative_ compared to what we got in our sample.
+
+<br>    
+    
+What is the proportion of differences that are at least as large in size as we got?
+
+$(5 + 4) / 126 = 0.071$
+
+
+##  Are the group or treatment means different? 
+
+<br>
+
+-  With larger samples, the number of combinations increases very quickly.
+
+-  Look at the pattern of means for female reaction time (randomised data).
+
+-  Means often come in a fairly _symmetric_ pattern
+
+
+```{r fig.width = 6, fig.height = 4.5}
+
+mean_F <- data.frame(avg = mean_first_4)
+
+#range(mean_F$avg)  ##  1.7725,  2.0600
+
+ggplot(mean_F, aes(x = avg)) +
+  geom_histogram(bins = 10, 
+                 colour = "gray24", fill = "white") +
+  labs(x = "Mean reaction time (s)", y = "Count") +
+  ggtitle("Mean reaction time (female, randomised data)")
+
+```
+
+
+
+##  Are the group or treatment means different? 
+
+<br>
+
+
+-  Differences of means also often come in a fairly _symmetric_ pattern
+
+
+
+```{r fig.width = 6, fig.height = 4.5}
+
+##range(diff_means$diff)  ##  -0.2435,  0.2740
+
+ggplot(diff_means, aes(x = diff)) +
+  geom_histogram(bins = 11, right = F,
+                 colour = "gray24", fill = "white") +
+  labs(x = "Difference in mean reaction time (s)", y = "Count") +
+  ggtitle("Difference in mean reaction time (female less male, randomised data)")
+  
+
+```
+
+
+##  Are the group or treatment means different? 
+
+<br>
+
+
+-  Because means often come in a symmetric pattern, we can use another method to answer our question.
+
+-  We can use a ready-made pattern: T distribution
+
+```{r fig.width = 6, fig.height = 4.5}
+
+##  Standardised differences of means
+
+##  SED
+
+react_shuffle_F <- as.vector(react_shuffle[1:4, ])
+react_shuffle_M <- as.vector(react_shuffle[5:9, ])
+
+react_shuffle_F_var <- var(react_shuffle_F)
+react_shuffle_M_var <- var(react_shuffle_M)
+
+s2_pool <- (3 * react_shuffle_F_var + 4 * react_shuffle_M_var) / 7
+
+sed <- sqrt(s2_pool * (1/4 + 1/5))
+
+diff_means$std <- diff_means$diff / sed
+
+#range(diff_means$std)
+
+x_t <- seq(-2.6, 2.6, length = 100)
+y_t <- dt(x_t, df = 7)
+
+
+hist(diff_means$std, freq = F, right = F,
+     breaks = seq(-2.3, 2.6, length = 12),
+     xlim = c(-2.8, 2.8),
+     xlab = "Difference in mean reaction time (s)",
+     main = "")
+lines(x = x_t, y = y_t, col = "purple")
+title("Standardised diff. in mean reaction time (randomised data) 
+      with t distribution")
+
+
+```
+
+##  Are the group or treatment means different? 
+
+
+If we use a T distribution to fit to the patttern of means, we can use a T test to answer our question.
+
+<br>
+
+```{r}
+
+t.test(Time ~ Gender, data = react, var.equal = T)
+
+```
+
+<br>
+
+$P = 0.073$
+
+<br>
+
+Very similar to what we got using the "shuffling"technique
+
+
+##  Are the group or treatment means different? 
+
+<br>
+
+"P = 0.073" means that the chance of getting the data that we got or a larger difference is 0.073.
+
+<br>
+
+```{r fig.width = 6, fig.height = 4.5}
+
+x_t <- seq(-3, 3, length = 100)
+y_t <- dt(x_t, df = 7)
+
+x1.poly <- c(-3, seq(-3, -2.107, length = 50), -2.107)
+y1.poly <- c(0, dt(seq(-3, -2.107, length = 50), df = 7), 0)
+
+
+x2.poly <- c(2.107, seq(2.107, 3, length = 50), 3)
+y2.poly <- c(0, dt(seq(2.107, 3, length = 50), df = 7), 0)
+
+plot(x_t, y_t, type = "l", xlab = "t", ylab = "", ylim = c(0, 0.4))
+lines(x = c(-3, 3), y = c(0, 0))
+polygon(x = x1.poly, y1.poly, col = "purple")
+polygon(x = x2.poly, y2.poly, col = "purple")
+text(2.2, 0.13, "t = 2.107")
+text(-2, 0.3, "Is there a difference in \n mean reaction time?")
+title("Mean reaction time - t distribution")
+
+
+
+```
+
+
+
+##  P value - meaning
+
+<br>
+
+A P value is the chance of getting the data we got or something more extreme on the basis that we assume the null hypothesis is true.
+
+<br>
+
+A P value is **not**:
+
+-  the probability that the null hypothesis is true
+-  the probability that our results were due to chance
+
+<br>
+
+A small P value is **not**
+
+-  evidence that we've made an important finding - statistical significance is not the same as scientific or clinical importance
+
+
+
+
+##  P values - a topic of debate
+
+<br>
+
+Google: American Statistical Society P value
+
+<br>
+
+New England Journal of Medicine, 
+
+New Guidelines for Statistical Reporting in the Journal
+
+https://www.nejm.org/doi/full/10.1056/NEJMe1906559
+
+<br>
+
+-  P values give no information about the size of an effect
+-  P values _and_ effect sizes with confidence intervals should _both_ be reported
+
+
+
+##  P values - Wrap-up questions
+
+<br>
+
+Plot shows brain weight of diseased mice of two types from a study of autoimmune encephalomyelitis development
+(Welsh et al. PLOS Biology https://doi.org/10.1371/journal.pbio.3000590 18 February, 2020)
+
+
+
+```{r fig.width = 6, fig.height = 4.5}
+
+##  From: Welsh 2020. Lack of MHC class II ...  PLOS Biology
+
+brain0 <- read.csv("data/welsh_brain_wt_s11_data.csv")
+
+#str(brain0)
+
+brain <- pivot_longer(brain0, cols = c("DO.WT", "DO.KO"),
+                      names_to = "mouse_type",
+                      values_to = "weight")
+
+brain$mouse_type <- factor(brain$mouse_type, 
+                           labels = c("KO", "WT"))
+
+
+wt_means <- data.frame(with(brain, tapply(weight, mouse_type, mean)))
+
+names(wt_means) <- c("weight")
+
+wt_means$mouse_type <- factor(c("KO", "WT"))
+
+
+ggplot(brain, aes(x = mouse_type, y = weight)) +
+  geom_jitter(position = position_jitter(width = 0.1, height = 0.1)) +
+  labs(x = "Mouse type", y = "Brain weight (g)") +
+  geom_point(data = wt_means, 
+             mapping = aes(x = mouse_type, y = weight), 
+             shape = 24, fill = "red", col = "red") +
+  ggtitle("Brain weight by mouse type with mean (red)")
+
+```
+
+
+<br>
+
+-  How different do the group means look?
+-  Assuming the group means are equal, how unusual are these results?
+-  Would you expect a large or small P value if we tested the hypothesis that the group means were equal?
+
+
+##  P values - Wrap-up questions
+
+
+```{r fig.width = 6, fig.height = 4.5}
+
+x_t <- seq(-3, 3, length = 100)
+y_t <- dt(x_t, df = 18)
+
+x1.poly <- c(-3, seq(-3, -0.2, length = 50), -0.2)
+y1.poly <- c(0, dt(seq(-3, -0.2, length = 50), df = 18), 0)
+
+
+x2.poly <- c(0.2, seq(0.2, 3, length = 50), 3)
+y2.poly <- c(0, dt(seq(0.2, 3, length = 50), df = 18), 0)
+
+
+plot(x_t, y_t, type = "l", xlab = "t", ylab = "", ylim = c(0, 0.4))
+lines(x = c(-3, 3), y = c(0, 0))
+polygon(x = x1.poly, y1.poly, col = "purple")
+polygon(x = x2.poly, y2.poly, col = "purple")
+text(2.2, 0.13, "t = 0.20")
+text(-2, 0.3, "Is there a difference in \n mean brain weights?")
+title("Mean brain weight (t = 0.20 is standardised difference in weights)")
+
+```
+
+
+
+##  P values - Wrap-up questions
+
+
+```{r}
+
+t.test(weight ~ mouse_type, data = brain, var.equal = T)
+
+```
+
+
+<br>
+
+
+-  Assuming the KO and WT groups have the same mean, the (standardised) difference we got from our data does not look very unusual - that difference is pretty close to zero on the plot on the previous slide.
+-  So, assuming equal means for the KO and WT groups, the chance of getting the difference in the two means that we got from our data is quite large. From the t test, P = 0.85, which is a large P value.
+-  There is no evidence here against the null hypothesis that the two groups have equal means.
+
+
+##  P values - Wrap-up questions
+
+<br>
+
+Zaslavsky, K. et al. 2019. SHANK2, Supplementary Figure 3c
+
+<br>
+
+
+-  How different do the group means look?
+-  Assuming the group means are equal, how unusual are these results?
+-  Would you expect a large or small P value if we tested the hypothesis that the group means were equal?
+
+
+
+##  Useful references
+
+-  Good statistics textbooks
+
+MacGillivray H et al. (2013) _Mind on Statistics_. Cengage Learning Australia, Melbourne, 2nd ed. (Available as e-book in UNSW library)
+
+Quinn GP & Keough MJ (2002) _Experimental Design and Data Analysis for Biologists_. Cambridge University Press, Cambridge. (Available as e-book in UNSW library)
+
+-  Up-to-date book - topics include RNA-Seq, flow-cytometry, taxa abundances, imaging data and single cell measurements (examples are given using R)
+
+Holmes S & Huber W (2019) _Modern Statistics for Modern Biology_.
+URL: http://web.stanford.edu/class/bios221/book/index.html
+
+<br>
+
+Foulkes AS (2009) _Applied Statistical Genetics with R: For Population-based Association Studies_. Springer, New York. (Available as e-book in UNSW library)
+
+Laird NM & Lange C (2011) _The Fundamentals of Modern Statistical Genetics_. Springer, New York. (Available as e-book in UNSW library)
+
+<br>
+
+continued
+
+##  Useful references (continued) 
+
+-  Motley collection of useful articles
+
+Greenland S et al. (2016) Statistical tests, P values, confidence intervals, and power: a guide to misinterpretations. _Eur J Epidemiol_ 31:337–350 DOI 10.1007/s10654-016-0149-3
+
+Vaux D (2014) Basic statistics in cell biology. _Annu. Rev. Cell Dev. Biol._ 30:23–37  DOI 10.1146/annurev-cellbio-100913-013303
+
+-  Guidelines on how to report statistical results
+
+Lang TA & Altman DG (2016) Statistical analyses and methods in
+the published literature: The SAMPL guidelines. _Medical Writing_ 25:31-36. (Not available through UNSW library. Available here (if you can't get it, let me know and I'll send it): https://journal.emwa.org/statistics/)
+
+Lang T (2016) Never P alone: The value of estimates and confidence intervals. _Medical Writing_ 25:17:21. (Available at url above.)
+
+Harrington D et al. (2019) New guidelines for statistical reporting in the Journal. _New England Journal of Medicine_ 381:285-286
+
+
+
